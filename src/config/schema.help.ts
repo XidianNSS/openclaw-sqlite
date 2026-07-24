@@ -869,6 +869,8 @@ export const FIELD_HELP: Record<string, string> = {
     "Scope selector controlling when video understanding is attempted across incoming events. Narrow scope in noisy channels, and broaden only where video interpretation is core to workflow.",
   "skills.load.extraDirs":
     "Additional shared skill roots to scan at lowest precedence. Use this for sibling repos or shared skill packs that should be available without copying them into the OpenClaw workspace.",
+  "skills.load.sealedDirs":
+    "Absolute immutable vendor skill roots to encrypt into the shared SQLite state database during Gateway startup. OpenClaw removes each plaintext skill directory only after the encrypted generation is durably committed and verified. Use only for appliance-provisioned Linux roots, and restart the Gateway after provisioning a complete replacement generation. Sealed skills support OpenClaw-managed reads but not shell execution, sandboxes, or native CLI backends.",
   "skills.load.allowSymlinkTargets":
     "Trusted real target roots that skill symlinks may resolve into when they sit outside their configured source root. Keep this narrow, such as a sibling repo skills directory.",
   "skills.load.watch":

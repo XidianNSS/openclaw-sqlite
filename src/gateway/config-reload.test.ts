@@ -459,6 +459,15 @@ describe("buildGatewayReloadPlan", () => {
     expect(plan.hotReasons).toContain("mcp.servers.context7.command");
   });
 
+  it("restarts the gateway when sealed skill roots change", () => {
+    const path = "skills.load.sealedDirs";
+    const plan = buildGatewayReloadPlan([path]);
+
+    expect(plan.restartGateway).toBe(true);
+    expect(plan.restartReasons).toContain(path);
+    expect(resolveConfigReloadMetadata(path).kind).toBe("restart");
+  });
+
   it("treats gateway.remote as no-op", () => {
     const plan = buildGatewayReloadPlan(["gateway.remote.url"]);
     expect(plan.restartGateway).toBe(false);

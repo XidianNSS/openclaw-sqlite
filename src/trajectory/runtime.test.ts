@@ -105,6 +105,39 @@ describe("trajectory runtime", () => {
     expect(JSON.stringify(parsed.data)).not.toContain("abcd-efgh-ijkl-mnop");
   });
 
+  it("omits marked sealed skill read bodies from runtime message snapshots", () => {
+    const writes: string[] = [];
+    const recorder = expectTrajectoryRuntimeRecorder(
+      createTrajectoryRuntimeRecorder({
+        sessionId: "session-1",
+        sessionFile: "/tmp/session.jsonl",
+        writer: {
+          filePath: "/tmp/session.trajectory.jsonl",
+          write: (line) => writes.push(line),
+          flush: async () => undefined,
+        },
+      }),
+    );
+    const sealedBody = "SEALED_RUNTIME_TRACE_CANARY_175b";
+
+    recorder.recordEvent("prompt.submitted", {
+      messages: [
+        {
+          role: "toolResult",
+          toolCallId: "sealed-read",
+          toolName: "read",
+          content: [{ type: "text", text: sealedBody }],
+          details: { sealedSkillContent: true },
+          isError: false,
+          timestamp: 1,
+        },
+      ],
+    });
+
+    expect(writes[0]).not.toContain(sealedBody);
+    expect(writes[0]).toContain("omitted from diagnostic output");
+  });
+
   it("bounds large runtime event fields before serialization", () => {
     const writes: string[] = [];
     const recorder = createTrajectoryRuntimeRecorder({

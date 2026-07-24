@@ -575,7 +575,8 @@ subsystem (channel, cron, heartbeat, health monitor) rather than the whole Gatew
 | Agent & models      | `agent`, `agents`, `models`, `routing`                                  | No                           |
 | Automation          | `hooks`, `cron`, `agent.heartbeat`                                      | No (restarts that subsystem) |
 | Sessions & messages | `session`, `messages`                                                   | No                           |
-| Tools & media       | `tools`, `skills`, `mcp`, `audio`, `talk`                               | No                           |
+| Tools & media       | `tools`, `skills` (except below), `mcp`, `audio`, `talk`                | No                           |
+| Sealed skill roots  | `skills.load.sealedDirs`                                                | **Yes**                      |
 | Plugin config       | `plugins.entries.*`, `plugins.allow`, `plugins.deny`, `plugins.enabled` | No (reloads plugin runtime)  |
 | UI & misc           | `ui`, `logging`, `identity`, `bindings`                                 | No                           |
 | Gateway server      | `gateway.*` (port, bind, auth, tailscale, TLS, HTTP, push)              | **Yes**                      |

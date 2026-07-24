@@ -2,6 +2,7 @@
 // Adds workspace-root guards, adaptive read paging, image validation, memory
 // append-only writes, and parameter cleanup around the session file tools.
 
+import syncFs from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { URL } from "node:url";
@@ -20,9 +21,19 @@ import { decodeWindowsTextFileBuffer } from "../infra/windows-encoding.js";
 import {
   classifyMediaReferenceSource,
   normalizeMediaReferenceSource,
+  resolveMediaReferenceLocalPath,
   resolveMediaReferenceSandboxPath,
 } from "../media/media-reference.js";
 import { sniffMimeFromBase64 } from "../media/sniff-mime-from-base64.js";
+import {
+  findSealedSkillFilesSync,
+  getSealedSkillPathKind,
+  isPathInsideSealedSkillRoot,
+  isSealedSkillFilePath,
+  listSealedSkillDirectorySync,
+  listSealedSkillFilesSync,
+  readSealedSkillFileSync,
+} from "../skills/sealed-runtime.js";
 import { clampNumber } from "../utils.js";
 import {
   REQUIRED_PARAM_GROUPS,
@@ -38,7 +49,21 @@ import { toRelativeWorkspacePath } from "./path-policy.js";
 import type { AgentToolResult } from "./runtime/index.js";
 import { assertSandboxPath } from "./sandbox-paths.js";
 import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
-import { createEditTool, createReadTool, createWriteTool } from "./sessions/index.js";
+import {
+  createEditTool,
+  createFindTool,
+  createLsTool,
+  createReadTool,
+  createWriteTool,
+} from "./sessions/index.js";
+import { resolveReadPath, resolveToCwd } from "./sessions/tools/path-utils.js";
+import {
+  DEFAULT_MAX_BYTES,
+  formatSize,
+  GREP_MAX_LINE_LENGTH,
+  truncateHead,
+  truncateLine,
+} from "./sessions/tools/truncate.js";
 import { sanitizeToolResultImages } from "./tool-images.js";
 
 export {
@@ -75,6 +100,11 @@ const OFFSET_BEYOND_EOF_RE = /^Offset \d+ is beyond end of file \(\d+ lines tota
 const READ_CONTINUATION_NOTICE_RE =
   /\n\n\[(?:Showing lines [^\]]*?Use offset=\d+ to continue\.|\d+ more lines in file\. Use offset=\d+ to continue\.)\]\s*$/;
 const DAILY_MEMORY_PATH_RE = /^memory\/\d{4}-\d{2}-\d{2}\.md$/;
+const SEALED_SKILL_READ_TOOL_NAMES = new Set(["read", "ls", "find", "grep"]);
+
+type SealedSkillAccessOptions = {
+  allowedRoots?: readonly string[];
+};
 
 function resolveAdaptiveReadMaxBytes(options?: OpenClawReadToolOptions): number {
   const contextWindowTokens = options?.modelContextWindowTokens;
@@ -775,14 +805,15 @@ export function wrapToolWorkspaceRootGuardWithOptions(
           normalizedRecord ??= { ...record };
           normalizedRecord[key] = filePath;
         }
+        const guardFilePath = resolveContainerPathCandidate(filePath) ?? filePath;
         let guardedRoot = root;
         let workspaceMapping: ReturnType<typeof mapContainerPathToRoot> | undefined;
-        let sandboxPath = filePath;
+        let sandboxPath = guardFilePath;
         for (const mount of [...(options?.additionalContainerMounts ?? [])].toSorted(
           (a, b) => b.containerRoot.length - a.containerRoot.length,
         )) {
           const mountMapping = mapContainerPathToRoot({
-            filePath,
+            filePath: guardFilePath,
             root: mount.hostRoot,
             containerRoot: mount.containerRoot,
           });
@@ -794,7 +825,7 @@ export function wrapToolWorkspaceRootGuardWithOptions(
         }
         if (guardedRoot === root) {
           workspaceMapping = mapContainerPathToRoot({
-            filePath,
+            filePath: guardFilePath,
             root,
             containerRoot: options?.containerWorkdir,
           });
@@ -804,6 +835,13 @@ export function wrapToolWorkspaceRootGuardWithOptions(
           guardedRoot === root && !workspaceMapping?.matched
             ? (options?.additionalRoots ?? [])
             : [];
+        const sealedPathAllowed =
+          SEALED_SKILL_READ_TOOL_NAMES.has(tool.name) &&
+          isPathInsideSealedSkillRoot(sandboxPath) &&
+          additionalRoots.some((candidateRoot) => isPathWithinRoot(candidateRoot, sandboxPath));
+        if (sealedPathAllowed) {
+          continue;
+        }
         let sandboxResult: Awaited<ReturnType<typeof assertSandboxPathWithinAnyRoot>>;
         try {
           sandboxResult = await assertSandboxPathWithinAnyRoot({
@@ -820,6 +858,336 @@ export function wrapToolWorkspaceRootGuardWithOptions(
       }
       return tool.execute(toolCallId, normalizedRecord ?? args, signal, onUpdate);
     },
+  };
+}
+
+async function resolveSealedAwareHostReadPath(filePath: string, cwd: string): Promise<string> {
+  const normalizedMediaSource = normalizeMediaReferenceSource(filePath);
+  if (classifyMediaReferenceSource(normalizedMediaSource).isMediaStoreUrl) {
+    return await resolveMediaReferenceLocalPath(normalizedMediaSource);
+  }
+  return resolveReadPath(filePath, cwd);
+}
+
+/** Host read operations prefer sealed skill blobs and never fall through inside a sealed root. */
+export function createSealedAwareHostReadOperations(options?: SealedSkillAccessOptions) {
+  return {
+    resolvePath: resolveSealedAwareHostReadPath,
+    decodeText: ({ buffer }: { buffer: Buffer; absolutePath: string }) =>
+      decodeWindowsTextFileBuffer({ buffer }),
+    readFile: async (absolutePath: string) => {
+      if (isSealedSkillFilePath(absolutePath)) {
+        assertSealedSkillPathAllowed(absolutePath, options?.allowedRoots);
+        const sealed = readSealedSkillFileSync(absolutePath);
+        if (sealed) {
+          return sealed;
+        }
+        throw createFsAccessError("ENOENT", absolutePath);
+      }
+      if (isPathInsideSealedSkillRoot(absolutePath)) {
+        throw createFsAccessError("ENOENT", absolutePath);
+      }
+      return await fs.readFile(absolutePath);
+    },
+    access: async (absolutePath: string) => {
+      if (isSealedSkillFilePath(absolutePath)) {
+        assertSealedSkillPathAllowed(absolutePath, options?.allowedRoots);
+        return;
+      }
+      if (isPathInsideSealedSkillRoot(absolutePath)) {
+        throw createFsAccessError("ENOENT", absolutePath);
+      }
+      await fs.access(absolutePath);
+    },
+    detectImageMimeType: async (absolutePath: string) => {
+      let sealed: Buffer | undefined;
+      if (isSealedSkillFilePath(absolutePath)) {
+        assertSealedSkillPathAllowed(absolutePath, options?.allowedRoots);
+        sealed = readSealedSkillFileSync(absolutePath);
+      } else if (isPathInsideSealedSkillRoot(absolutePath)) {
+        throw createFsAccessError("ENOENT", absolutePath);
+      }
+      const mime = sealed
+        ? await detectMime({ buffer: sealed, filePath: absolutePath })
+        : await detectMime({ filePath: absolutePath });
+      return mime && mime.startsWith("image/") ? mime : undefined;
+    },
+  } as const;
+}
+
+function markSealedSkillContent(result: AgentToolResult<unknown>): AgentToolResult<unknown> {
+  const details =
+    result.details && typeof result.details === "object"
+      ? (result.details as Record<string, unknown>)
+      : {};
+  return {
+    ...result,
+    details: { ...details, sealedSkillContent: true },
+  };
+}
+
+/** Mark sealed read results so persistence and diagnostics can omit decrypted bodies. */
+export function wrapSealedSkillReadDiagnostics(tool: AnyAgentTool, cwd: string): AnyAgentTool {
+  return {
+    ...tool,
+    execute: async (toolCallId, args, signal, onUpdate) => {
+      const result = await tool.execute(toolCallId, args, signal, onUpdate);
+      const record = getToolParamsRecord(args);
+      const rawPath = typeof record?.path === "string" ? record.path : "";
+      const normalizedPath = normalizeFileToolPathParam(rawPath);
+      const filePath = await resolveSealedAwareHostReadPath(normalizedPath, cwd);
+      if (!isSealedSkillFilePath(filePath)) {
+        return result;
+      }
+      return markSealedSkillContent(result);
+    },
+  };
+}
+
+/** Host ls operations merge ordinary files with the in-memory sealed path view. */
+export function createSealedAwareHostLsTool(
+  cwd: string,
+  options?: SealedSkillAccessOptions,
+): AnyAgentTool {
+  return createLsTool(cwd, {
+    operations: {
+      exists: (absolutePath) => {
+        if (isPathInsideSealedSkillRoot(absolutePath)) {
+          return (
+            isSealedSkillPathAllowed(absolutePath, options?.allowedRoots) &&
+            getSealedSkillPathKind(absolutePath) !== undefined
+          );
+        }
+        return syncFs.existsSync(absolutePath);
+      },
+      stat: (absolutePath) => {
+        const kind = getSealedSkillPathKind(absolutePath);
+        if (kind) {
+          assertSealedSkillPathAllowed(absolutePath, options?.allowedRoots);
+          return { isDirectory: () => kind === "directory" };
+        }
+        if (isPathInsideSealedSkillRoot(absolutePath)) {
+          throw createFsAccessError("ENOENT", absolutePath);
+        }
+        return syncFs.statSync(absolutePath);
+      },
+      readdir: (absolutePath) => {
+        const entries = listSealedSkillDirectorySync(absolutePath);
+        if (entries) {
+          assertSealedSkillPathAllowed(absolutePath, options?.allowedRoots);
+          return entries;
+        }
+        if (isPathInsideSealedSkillRoot(absolutePath)) {
+          throw createFsAccessError("ENOENT", absolutePath);
+        }
+        return syncFs.readdirSync(absolutePath);
+      },
+    },
+  }) as unknown as AnyAgentTool;
+}
+
+/** Route find calls for sealed roots through the encrypted resource index. */
+export function wrapSealedAwareHostFindTool(
+  base: AnyAgentTool,
+  cwd: string,
+  options?: SealedSkillAccessOptions,
+): AnyAgentTool {
+  const sealedTool = createFindTool(cwd, {
+    operations: {
+      exists: (absolutePath) => getSealedSkillPathKind(absolutePath) !== undefined,
+      glob: (pattern, searchPath, globOptions) =>
+        findSealedSkillFilesSync({
+          searchPath,
+          pattern,
+          limit: globOptions.limit,
+        }) ?? [],
+    },
+  }) as unknown as AnyAgentTool;
+  return {
+    ...base,
+    execute: (toolCallId, args, signal, onUpdate) => {
+      const record = getToolParamsRecord(args);
+      const searchPath = resolveHostToolPath(record?.path, cwd);
+      if (!isPathInsideSealedSkillRoot(searchPath)) {
+        return base.execute(toolCallId, args, signal, onUpdate);
+      }
+      assertSealedSkillPathAllowed(searchPath, options?.allowedRoots);
+      return sealedTool.execute(toolCallId, args, signal, onUpdate);
+    },
+  };
+}
+
+/** Route grep calls for sealed roots through decrypted in-memory buffers. */
+export function wrapSealedAwareHostGrepTool(
+  base: AnyAgentTool,
+  cwd: string,
+  options?: SealedSkillAccessOptions,
+): AnyAgentTool {
+  return {
+    ...base,
+    execute: async (toolCallId, args, signal, onUpdate) => {
+      const record = getToolParamsRecord(args);
+      const searchPath = resolveHostToolPath(record?.path, cwd);
+      if (!isPathInsideSealedSkillRoot(searchPath)) {
+        return await base.execute(toolCallId, args, signal, onUpdate);
+      }
+      assertSealedSkillPathAllowed(searchPath, options?.allowedRoots);
+      if (signal?.aborted) {
+        throw new Error("Operation aborted");
+      }
+      return markSealedSkillContent(
+        searchSealedSkillFiles({
+          searchPath,
+          pattern: typeof record?.pattern === "string" ? record.pattern : "",
+          glob: typeof record?.glob === "string" ? record.glob : undefined,
+          ignoreCase: record?.ignoreCase === true,
+          literal: record?.literal === true,
+          context: normalizePositiveInteger(record?.context, 0),
+          limit: normalizePositiveInteger(record?.limit, 100),
+          signal,
+        }),
+      );
+    },
+  };
+}
+
+function resolveHostToolPath(value: unknown, cwd: string): string {
+  const filePath = typeof value === "string" && value.trim() ? value : ".";
+  return resolveToCwd(filePath, cwd);
+}
+
+function isPathWithinRoot(root: string, filePath: string): boolean {
+  const relative = path.relative(path.resolve(root), path.resolve(filePath));
+  return (
+    relative === "" ||
+    (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  );
+}
+
+function isSealedSkillPathAllowed(filePath: string, allowedRoots?: readonly string[]): boolean {
+  return Boolean(allowedRoots?.some((candidateRoot) => isPathWithinRoot(candidateRoot, filePath)));
+}
+
+function assertSealedSkillPathAllowed(filePath: string, allowedRoots?: readonly string[]): void {
+  if (!isSealedSkillPathAllowed(filePath, allowedRoots)) {
+    throw createFsAccessError("ENOENT", filePath);
+  }
+}
+
+function normalizePositiveInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : fallback;
+}
+
+function matchesSealedGlob(filePath: string, searchPath: string, pattern?: string): boolean {
+  if (!pattern) {
+    return true;
+  }
+  const relativePath = path.relative(searchPath, filePath).split(path.sep).join("/");
+  return pattern.includes("/")
+    ? path.matchesGlob(relativePath, pattern)
+    : path.matchesGlob(path.posix.basename(relativePath), pattern);
+}
+
+function createSearchPattern(pattern: string, literal: boolean, ignoreCase: boolean): RegExp {
+  const source = literal ? pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") : pattern;
+  return new RegExp(source, ignoreCase ? "iu" : "u");
+}
+
+function searchSealedSkillFiles(params: {
+  searchPath: string;
+  pattern: string;
+  glob?: string;
+  ignoreCase: boolean;
+  literal: boolean;
+  context: number;
+  limit: number;
+  signal?: AbortSignal;
+}) {
+  const kind = getSealedSkillPathKind(params.searchPath);
+  if (!kind) {
+    throw new Error(`Path not found: ${params.searchPath}`);
+  }
+  const filePaths = listSealedSkillFilesSync(params.searchPath) ?? [];
+  const expression = createSearchPattern(params.pattern, params.literal, params.ignoreCase);
+  const isDirectory = kind === "directory";
+  const matches: Array<{ filePath: string; lineNumber: number; lines: string[] }> = [];
+  let matchLimitReached = false;
+  for (const filePath of filePaths) {
+    if (params.signal?.aborted) {
+      throw new Error("Operation aborted");
+    }
+    if (!matchesSealedGlob(filePath, params.searchPath, params.glob)) {
+      continue;
+    }
+    const content = readSealedSkillFileSync(filePath);
+    if (!content) {
+      continue;
+    }
+    const lines = content.toString("utf8").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+    for (let index = 0; index < lines.length; index += 1) {
+      if (!expression.test(lines[index] ?? "")) {
+        continue;
+      }
+      if (matches.length >= params.limit) {
+        matchLimitReached = true;
+        break;
+      }
+      matches.push({ filePath, lineNumber: index + 1, lines });
+    }
+    if (matchLimitReached) {
+      break;
+    }
+  }
+  if (matches.length === 0) {
+    return { content: [{ type: "text" as const, text: "No matches found" }], details: undefined };
+  }
+
+  let linesTruncated = false;
+  const outputLines: string[] = [];
+  for (const match of matches) {
+    const displayPath = isDirectory
+      ? path.relative(params.searchPath, match.filePath).split(path.sep).join("/")
+      : path.basename(match.filePath);
+    const start = Math.max(1, match.lineNumber - params.context);
+    const end = Math.min(match.lines.length, match.lineNumber + params.context);
+    for (let lineNumber = start; lineNumber <= end; lineNumber += 1) {
+      const { text, wasTruncated } = truncateLine(match.lines[lineNumber - 1] ?? "");
+      linesTruncated ||= wasTruncated;
+      outputLines.push(
+        lineNumber === match.lineNumber
+          ? `${displayPath}:${lineNumber}: ${text}`
+          : `${displayPath}-${lineNumber}- ${text}`,
+      );
+    }
+  }
+  const truncation = truncateHead(outputLines.join("\n"), { maxLines: Number.MAX_SAFE_INTEGER });
+  let output = truncation.content;
+  const notices: string[] = [];
+  const details: Record<string, unknown> = {};
+  if (matchLimitReached) {
+    notices.push(
+      `${params.limit} matches limit reached. Use limit=${params.limit * 2} for more, or refine pattern`,
+    );
+    details.matchLimitReached = params.limit;
+  }
+  if (truncation.truncated) {
+    notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
+    details.truncation = truncation;
+  }
+  if (linesTruncated) {
+    notices.push(
+      `Some lines truncated to ${GREP_MAX_LINE_LENGTH} chars. Use read tool to see full lines`,
+    );
+    details.linesTruncated = true;
+  }
+  if (notices.length > 0) {
+    output += `\n\n[${notices.join(". ")}]`;
+  }
+  return {
+    content: [{ type: "text" as const, text: output }],
+    details: Object.keys(details).length > 0 ? details : undefined,
   };
 }
 
@@ -967,11 +1335,20 @@ function expandTildeToOsHome(filePath: string): string {
   return home ? expandHomePrefix(filePath, { home }) : filePath;
 }
 
-function resolveHostPath(filePath: string): string {
-  return path.resolve(expandTildeToOsHome(filePath));
+function resolveHostPath(filePath: string, cwd?: string): string {
+  const expanded = expandTildeToOsHome(filePath);
+  return path.resolve(cwd ?? process.cwd(), expanded);
+}
+
+function assertHostPathIsWritable(filePath: string): void {
+  const resolved = resolveHostPath(filePath);
+  if (isPathInsideSealedSkillRoot(resolved)) {
+    throw createFsAccessError("EROFS", resolved);
+  }
 }
 
 async function writeHostFile(absolutePath: string, content: string) {
+  assertHostPathIsWritable(absolutePath);
   const resolved = resolveHostPath(absolutePath);
   await fs.mkdir(path.dirname(resolved), { recursive: true });
   await fs.writeFile(resolved, content, "utf-8");
@@ -1004,6 +1381,7 @@ async function writeWorkspaceFile(
   absolutePath: string,
   content: string,
 ) {
+  assertHostPathIsWritable(absolutePath);
   // Validate the path before starting the fs-safe root: call getRoot() (which opens the
   // root dir, rejecting if the workspace is missing) only after toCanonicalRelativeWorkspacePath
   // succeeds. Eagerly starting it would orphan a rejecting root promise as an unhandled
@@ -1019,6 +1397,7 @@ function createHostWriteOperations(root: string, options?: { workspaceOnly?: boo
     // When workspaceOnly is false, allow writes anywhere on the host
     return {
       mkdir: async (dir: string) => {
+        assertHostPathIsWritable(dir);
         const resolved = resolveHostPath(dir);
         await fs.mkdir(resolved, { recursive: true });
       },
@@ -1038,6 +1417,7 @@ function createHostWriteOperations(root: string, options?: { workspaceOnly?: boo
   const getRoot = () => (rootPromise ??= fsRoot(root));
   return {
     mkdir: async (dir: string) => {
+      assertHostPathIsWritable(dir);
       const relative = toRelativeWorkspacePath(root, dir, { allowRoot: true });
       const resolved = relative ? path.resolve(root, relative) : path.resolve(root);
       await assertSandboxPath({ filePath: resolved, cwd: root, root });
@@ -1046,6 +1426,7 @@ function createHostWriteOperations(root: string, options?: { workspaceOnly?: boo
     writeFile: (absolutePath: string, content: string) =>
       writeWorkspaceFile(root, getRoot, absolutePath, content),
     readFile: async (absolutePath: string) => {
+      assertHostPathIsWritable(absolutePath);
       const relative = toRelativeWorkspacePath(root, absolutePath);
       return (await (await getRoot()).read(relative)).buffer;
     },
@@ -1063,10 +1444,12 @@ function createHostEditOperations(root: string, options?: { workspaceOnly?: bool
     // When workspaceOnly is false, allow edits anywhere on the host
     return {
       readFile: async (absolutePath: string) => {
+        assertHostPathIsWritable(absolutePath);
         return await fs.readFile(resolveHostPath(absolutePath));
       },
       writeFile: writeHostFile,
       access: async (absolutePath: string) => {
+        assertHostPathIsWritable(absolutePath);
         await fs.access(resolveHostPath(absolutePath));
       },
     } as const;
@@ -1087,6 +1470,7 @@ function createHostEditOperations(root: string, options?: { workspaceOnly?: bool
     writeFile: (absolutePath: string, content: string) =>
       writeWorkspaceFile(root, getRoot, absolutePath, content),
     access: async (absolutePath: string) => {
+      assertHostPathIsWritable(absolutePath);
       let relative: string;
       try {
         relative = toRelativeWorkspacePath(root, absolutePath);

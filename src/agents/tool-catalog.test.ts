@@ -26,6 +26,9 @@ describe("tool-catalog", () => {
     const policy = requireCoreToolProfilePolicy("coding");
     expect(policy.allow).toEqual([
       "read",
+      "ls",
+      "find",
+      "grep",
       "write",
       "edit",
       "apply_patch",

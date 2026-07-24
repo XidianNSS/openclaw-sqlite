@@ -6,6 +6,7 @@ import path from "node:path";
 import { sanitizeSurrogates } from "@openclaw/ai/internal/shared";
 import { resolveStateDir } from "../config/paths.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { redactSealedSkillContentFromMessages } from "../skills/sealed-runtime.js";
 import { resolveUserPath } from "../utils.js";
 import { parseBooleanValue } from "../utils/boolean.js";
 import { safeJsonStringify } from "../utils/safe-json.js";
@@ -172,7 +173,8 @@ export function createCacheTrace(params: CacheTraceInit): CacheTrace | null {
 
     const messages = payload.messages;
     if (Array.isArray(messages)) {
-      const summary = summarizeMessages(messages);
+      const diagnosticMessages = redactSealedSkillContentFromMessages(messages);
+      const summary = summarizeMessages(diagnosticMessages);
       event.messageCount = summary.messageCount;
       event.messageRoles = summary.messageRoles;
       event.messageFingerprints = summary.messageFingerprints;
@@ -180,7 +182,7 @@ export function createCacheTrace(params: CacheTraceInit): CacheTrace | null {
       if (cfg.includeMessages) {
         // Full messages are optional; summaries/digests are always recorded when
         // message payloads are supplied.
-        event.messages = redactAgentDiagnosticPayload(messages);
+        event.messages = redactAgentDiagnosticPayload(diagnosticMessages);
       }
     }
 

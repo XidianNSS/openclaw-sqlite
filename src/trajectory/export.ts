@@ -25,6 +25,7 @@ import {
   type SupportRedactionContext,
 } from "../logging/diagnostic-support-redaction.js";
 import { redactSecrets, redactToolPayloadText } from "../logging/redact.js";
+import { redactSealedSkillContentFromMessages } from "../skills/sealed-runtime.js";
 import { safeJsonStringify } from "../utils/safe-json.js";
 import { TRAJECTORY_RUNTIME_FILE_MAX_BYTES, safeTrajectorySessionFileName } from "./paths.js";
 import { isRegularNonSymlinkFile, resolveTrajectoryRuntimeFile } from "./runtime-file.js";
@@ -377,6 +378,18 @@ function extractAssistantToolCalls(
 
 function sanitizeTrajectoryExportValue<T>(value: T): T {
   return redactSecrets(sanitizeDiagnosticPayload(value)) as T;
+}
+
+function redactSealedSkillTranscriptEntries(entries: SessionEntry[]): SessionEntry[] {
+  const messages = redactSealedSkillContentFromMessages(
+    entries.flatMap((entry) => (entry.type === "message" ? [entry.message] : [])),
+  );
+  let messageIndex = 0;
+  return entries.map((entry) =>
+    entry.type === "message"
+      ? { ...entry, message: messages[messageIndex++] ?? entry.message }
+      : entry,
+  );
 }
 
 function buildTranscriptEvents(params: {
@@ -951,8 +964,9 @@ export async function exportTrajectoryBundle(params: BuildTrajectoryBundleParams
       })
     : { events: [], warnings: [] };
   const runtimeEvents = runtimeParse.events;
+  const diagnosticBranchEntries = redactSealedSkillTranscriptEntries(branchEntries);
   const transcriptEvents = buildTranscriptEvents({
-    entries: branchEntries,
+    entries: diagnosticBranchEntries,
     sessionId: params.sessionId,
     sessionKey: params.sessionKey,
     workspaceDir: params.workspaceDir,
@@ -1045,7 +1059,7 @@ export async function exportTrajectoryBundle(params: BuildTrajectoryBundleParams
         {
           header,
           leafId,
-          entries: branchEntries,
+          entries: diagnosticBranchEntries,
         },
         redaction,
       ),

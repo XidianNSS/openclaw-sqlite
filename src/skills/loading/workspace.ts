@@ -21,6 +21,8 @@ import {
 } from "../discovery/agent-filter.js";
 import { normalizeSkillFilter } from "../discovery/filter.js";
 import { filterPromptVisibleSkillEntries } from "../discovery/skill-index.js";
+import { isSealedSkill } from "../sealed-runtime.js";
+import { loadSealedSkillEntries } from "../sealed-store.js";
 import type {
   OpenClawSkillMetadata,
   ParsedSkillFrontmatter,
@@ -1189,6 +1191,7 @@ function loadSkillEntries(
       source: "openclaw-extra",
       limits,
     }),
+    ...(workspaceOnly || !opts?.config ? [] : loadSealedSkillEntries({ config: opts.config })),
   ];
   const managedSkills = workspaceOnly
     ? []
@@ -1447,6 +1450,27 @@ export function buildWorkspaceSkillsPrompt(
   return resolveWorkspaceSkillPromptState(workspaceDir, opts).prompt;
 }
 
+/** Rebuild a prompt from an already-filtered runtime skill list. */
+export function buildResolvedSkillsPrompt(params: {
+  skills: Skill[];
+  config?: OpenClawConfig;
+  agentId?: string;
+}): string {
+  const promptSkills = compactSkillPaths(params.skills).toSorted((a, b) =>
+    a.name.localeCompare(b.name, "en"),
+  );
+  const { skillsForPrompt, compact } = applySkillsPromptLimits({
+    skills: promptSkills,
+    config: params.config,
+    agentId: params.agentId,
+  });
+  return buildRenderedSkillsPrompt({
+    skills: skillsForPrompt,
+    total: promptSkills.length,
+    compact,
+  });
+}
+
 export const testing = {
   compactHomePath,
 };
@@ -1674,7 +1698,7 @@ export async function syncSkillsToWorkspace(params: {
       managedSkillsDir: params.managedSkillsDir,
       bundledSkillsDir: params.bundledSkillsDir,
       pluginSkillsDir: params.pluginSkillsDir,
-    });
+    }).filter((entry) => !isSealedSkill(entry.skill));
 
     await prepareSyncedSkillsDirectory(targetSkillsDir);
 

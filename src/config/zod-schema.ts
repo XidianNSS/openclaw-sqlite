@@ -1,3 +1,4 @@
+import path from "node:path";
 import { isHttpsUrl, isHttpUrl } from "@openclaw/net-policy/url-protocol";
 // Assembles the canonical Zod schema for OpenClaw config parsing.
 import {
@@ -40,6 +41,12 @@ const BrowserSnapshotDefaultsSchema = z
   })
   .strict()
   .optional();
+
+const AbsolutePathSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .refine((value) => path.isAbsolute(value), "must be an absolute path");
 
 const NodeHostSchema = z
   .object({
@@ -1348,6 +1355,7 @@ export const OpenClawSchema = z
         load: z
           .object({
             extraDirs: z.array(z.string()).optional(),
+            sealedDirs: z.array(AbsolutePathSchema).optional(),
             allowSymlinkTargets: z.array(z.string()).optional(),
             watch: z.boolean().optional(),
             watchDebounceMs: z.number().int().min(0).optional(),

@@ -3783,6 +3783,136 @@ describe("shouldSkipLocalCliCredentialEpoch", () => {
     }
   });
 
+  it("omits sealed skills from native CLI prompts while keeping filesystem skills", async () => {
+    const { dir, sessionFile } = createSessionFile();
+    const publicSkillDir = path.join(dir, "skills", "public");
+    const sealedSkillDir = "/opt/vendor/skills/private";
+    try {
+      const context = await prepareCliRunContext({
+        sessionId: "session-test",
+        sessionFile,
+        workspaceDir: dir,
+        prompt: "latest ask",
+        provider: "test-cli",
+        model: "test-model",
+        timeoutMs: 1_000,
+        runId: "run-native-cli-sealed-skills",
+        config: createCliBackendConfig(),
+        skillsSnapshot: {
+          prompt: "prompt containing both public and private skills",
+          skills: [{ name: "public" }, { name: "private" }],
+          resolvedSkills: [
+            {
+              name: "public",
+              description: "Public filesystem skill.",
+              filePath: path.join(publicSkillDir, "SKILL.md"),
+              baseDir: publicSkillDir,
+              source: "test",
+              sourceInfo: {
+                path: publicSkillDir,
+                source: "test",
+                scope: "project",
+                origin: "top-level",
+                baseDir: publicSkillDir,
+              },
+              disableModelInvocation: false,
+            },
+            {
+              name: "private",
+              description: "Private sealed skill.",
+              filePath: path.join(sealedSkillDir, "SKILL.md"),
+              baseDir: sealedSkillDir,
+              source: "openclaw-sealed",
+              sourceInfo: {
+                path: sealedSkillDir,
+                source: "openclaw-sealed",
+                scope: "project",
+                origin: "top-level",
+                baseDir: sealedSkillDir,
+              },
+              disableModelInvocation: false,
+              storage: {
+                kind: "sealed",
+                rootKey: "root-key",
+                generation: "generation",
+              },
+            },
+          ],
+        },
+      });
+
+      expect(context.systemPrompt).toContain("<name>public</name>");
+      expect(context.systemPrompt).not.toContain("<name>private</name>");
+      expect(context.systemPrompt).not.toContain(sealedSkillDir);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("hydrates unresolved snapshots before filtering sealed native CLI skills", async () => {
+    const { dir, sessionFile } = createSessionFile();
+    const skillDir = path.join(dir, "skills", "public");
+    const skillFilePath = path.join(skillDir, "SKILL.md");
+    const config: OpenClawConfig = {
+      ...createCliBackendConfig(),
+      skills: { load: { sealedDirs: ["/opt/vendor/skills"] } },
+    };
+    const hydratedSnapshot = {
+      prompt:
+        "<available_skills><skill><name>public</name><location>" +
+        skillFilePath +
+        "</location></skill></available_skills>",
+      skills: [{ name: "public" }],
+      resolvedSkills: [
+        {
+          name: "public",
+          description: "Public filesystem skill.",
+          filePath: skillFilePath,
+          baseDir: skillDir,
+          source: "test",
+          sourceInfo: {
+            path: skillDir,
+            source: "test",
+            scope: "project" as const,
+            origin: "top-level" as const,
+            baseDir: skillDir,
+          },
+          disableModelInvocation: false,
+        },
+      ],
+    };
+    const resolveSnapshot = vi.fn(() => ({
+      snapshot: hydratedSnapshot,
+      shouldRefresh: false,
+      snapshotVersion: 1,
+    }));
+    setCliRunnerPrepareTestDeps({ resolveReusableWorkspaceSkillSnapshot: resolveSnapshot });
+
+    try {
+      const context = await prepareCliRunContext({
+        sessionId: "session-test",
+        sessionFile,
+        workspaceDir: dir,
+        prompt: "latest ask",
+        provider: "test-cli",
+        model: "test-model",
+        timeoutMs: 1_000,
+        runId: "run-native-cli-hydrated-skills",
+        config,
+        skillsSnapshot: {
+          prompt: "persisted public skill prompt",
+          skills: [{ name: "public" }],
+        },
+      });
+
+      expect(resolveSnapshot).toHaveBeenCalledOnce();
+      expect(context.systemPrompt).toContain("<name>public</name>");
+      expect(context.systemPrompt).toContain(skillFilePath);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("does not probe the transcript for non-claude-cli providers", async () => {
     const { dir, sessionFile } = createSessionFile();
     try {

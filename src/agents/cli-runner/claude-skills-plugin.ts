@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import { resolvePreferredOpenClawTmpDir } from "../../infra/tmp-openclaw-dir.js";
+import { isSealedSkill } from "../../skills/sealed-runtime.js";
 import type { SkillSnapshot } from "../../skills/types.js";
 import { cliBackendLog } from "./log.js";
 
@@ -53,6 +54,10 @@ async function collectClaudePluginSkills(snapshot?: SkillSnapshot): Promise<Mate
   const usedTargetNames = new Set<string>();
   const materialized: MaterializedSkill[] = [];
   for (const skill of skills) {
+    if (isSealedSkill(skill)) {
+      cliBackendLog.warn(`claude skill plugin omitted sealed skill: ${skill.name}`);
+      continue;
+    }
     const name = skill.name?.trim();
     const skillFilePath = skill.filePath?.trim();
     if (!name || !skillFilePath) {

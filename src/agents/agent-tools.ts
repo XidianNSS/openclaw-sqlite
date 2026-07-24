@@ -24,6 +24,7 @@ import type { PluginHookChannelContext } from "../plugins/hook-types.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
 import { GATEWAY_OWNER_ONLY_CORE_TOOLS } from "../security/dangerous-tools.js";
 import { createLazyImportLoader } from "../shared/lazy-promise.js";
+import { hasSealedSkillRuntime } from "../skills/sealed-runtime.js";
 import type { SkillSnapshot, SkillUsagePath } from "../skills/types.js";
 import { resolveGatewayMessageChannel } from "../utils/message-channel.js";
 import { resolveAgentConfig } from "./agent-scope.js";
@@ -41,6 +42,8 @@ import {
   createHostWorkspaceEditTool,
   createHostWorkspaceWriteTool,
   createOpenClawReadTool,
+  createSealedAwareHostReadOperations,
+  createSealedAwareHostLsTool,
   createSandboxedEditTool,
   createSandboxedReadTool,
   createSandboxedWriteTool,
@@ -49,6 +52,9 @@ import {
   wrapToolWorkspaceRootGuard,
   wrapToolWorkspaceRootGuardWithOptions,
   wrapToolParamValidation,
+  wrapSealedAwareHostFindTool,
+  wrapSealedAwareHostGrepTool,
+  wrapSealedSkillReadDiagnostics,
 } from "./agent-tools.read.js";
 import { normalizeToolParameters } from "./agent-tools.schema.js";
 import type { AnyAgentTool } from "./agent-tools.types.js";
@@ -75,7 +81,12 @@ import { createOpenClawTools } from "./openclaw-tools.js";
 import type { SandboxContext } from "./sandbox.js";
 import { SANDBOX_AGENT_WORKSPACE_MOUNT } from "./sandbox/constants.js";
 import { resolveReadOnlyWorkspaceSkillMounts } from "./sandbox/workspace-mounts.js";
-import { createCodingTools, createReadTool } from "./sessions/index.js";
+import {
+  createCodingTools,
+  createFindTool,
+  createGrepTool,
+  createReadTool,
+} from "./sessions/index.js";
 import {
   EXEC_TOOL_DISPLAY_SUMMARY,
   PROCESS_TOOL_DISPLAY_SUMMARY,
@@ -169,6 +180,20 @@ function resolveSkillReadRoots(skillsSnapshot?: SkillSnapshot): string[] | undef
     return undefined;
   }
   return Array.from(roots);
+}
+
+function resolveSealedSkillReadRoots(skillsSnapshot?: SkillSnapshot): string[] | undefined {
+  const roots = new Set<string>();
+  for (const skill of skillsSnapshot?.resolvedSkills ?? []) {
+    if (skill.storage?.kind !== "sealed") {
+      continue;
+    }
+    const root = skill.baseDir?.trim() || path.dirname(skill.filePath);
+    if (root && path.isAbsolute(root)) {
+      roots.add(path.resolve(root));
+    }
+  }
+  return roots.size > 0 ? Array.from(roots) : undefined;
 }
 
 type BashToolsModule = typeof import("./bash-tools.js");
@@ -724,6 +749,9 @@ export function createOpenClawCodingTools(options?: {
   const includePluginTools = toolConstructionPlan.includePluginTools;
   const workspaceOnly = fsPolicy.workspaceOnly;
   const skillReadRoots = sandboxRoot ? undefined : resolveSkillReadRoots(options?.skillsSnapshot);
+  const sealedSkillReadRoots = sandboxRoot
+    ? undefined
+    : resolveSealedSkillReadRoots(options?.skillsSnapshot);
   const applyPatchConfig = execConfig.applyPatch;
   // Secure by default: apply_patch is workspace-contained unless explicitly disabled.
   // (tools.fs.workspaceOnly is a separate umbrella flag for read/write/edit/apply_patch.)
@@ -763,11 +791,16 @@ export function createOpenClawCodingTools(options?: {
           );
           continue;
         }
-        const freshReadTool = createReadTool(codingRoot);
-        const wrapped = createOpenClawReadTool(freshReadTool, {
-          modelContextWindowTokens: options?.modelContextWindowTokens,
-          imageSanitization,
+        const freshReadTool = createReadTool(codingRoot, {
+          operations: createSealedAwareHostReadOperations({ allowedRoots: sealedSkillReadRoots }),
         });
+        const wrapped = wrapSealedSkillReadDiagnostics(
+          createOpenClawReadTool(freshReadTool, {
+            modelContextWindowTokens: options?.modelContextWindowTokens,
+            imageSanitization,
+          }),
+          codingRoot,
+        );
         base.push(
           workspaceOnly
             ? wrapToolWorkspaceRootGuardWithOptions(wrapped, codingRoot, {
@@ -797,6 +830,26 @@ export function createOpenClawCodingTools(options?: {
         continue;
       }
       base.push(tool);
+    }
+    if (!sandboxRoot && hasSealedSkillRuntime() && sealedSkillReadRoots) {
+      const sealedDiscoveryTools = [
+        createSealedAwareHostLsTool(codingRoot, { allowedRoots: sealedSkillReadRoots }),
+        wrapSealedAwareHostFindTool(createFindTool(codingRoot), codingRoot, {
+          allowedRoots: sealedSkillReadRoots,
+        }),
+        wrapSealedAwareHostGrepTool(createGrepTool(codingRoot), codingRoot, {
+          allowedRoots: sealedSkillReadRoots,
+        }),
+      ];
+      for (const tool of sealedDiscoveryTools) {
+        base.push(
+          workspaceOnly
+            ? wrapToolWorkspaceRootGuardWithOptions(tool, codingRoot, {
+                additionalRoots: skillReadRoots,
+              })
+            : tool,
+        );
+      }
     }
   }
   options?.recordToolPrepStage?.("base-coding-tools");

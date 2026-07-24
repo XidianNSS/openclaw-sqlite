@@ -182,6 +182,7 @@ See [MCP](/cli/mcp#openclaw-as-an-mcp-client-registry) and
     allowBundled: ["gemini", "peekaboo"],
     load: {
       extraDirs: ["~/Projects/agent-scripts/skills"],
+      sealedDirs: ["/opt/vendor/openclaw-skills"],
       allowSymlinkTargets: ["~/Projects/manager/skills"],
     },
     install: {
@@ -206,6 +207,15 @@ See [MCP](/cli/mcp#openclaw-as-an-mcp-client-registry) and
 
 - `allowBundled`: optional allowlist for bundled skills only (managed/workspace skills unaffected).
 - `load.extraDirs`: extra shared skill roots (lowest precedence).
+- `load.sealedDirs`: absolute immutable vendor skill roots encrypted into the
+  shared SQLite state database during Linux Gateway startup. After commit and
+  verification, OpenClaw removes the discovered plaintext skill directories.
+  Changes require a Gateway restart. Host embedded `read`/`ls`/`find`/`grep`
+  can use the original read-only paths; sandboxes, shells, and native CLI
+  backends cannot. Follow [Sealed vendor skills](/tools/sealed-skills) for the
+  deployment and recovery runbook, and see
+  [Skills config](/tools/skills-config#sealed-skill-roots) for the config
+  contract.
 - `load.allowSymlinkTargets`: trusted real target roots that skill symlinks may
   resolve into when the link lives outside its configured source root.
 - `workshop.allowSymlinkTargetWrites`: allows Skill Workshop apply to write

@@ -671,6 +671,12 @@ export async function startGatewayServer(
     startupLastGoodSnapshot = startupSnapshot;
   }
   setRuntimeConfigSnapshot(cfgAtStart, startupLastGoodSnapshot.sourceConfig);
+  if ((cfgAtStart.skills?.load?.sealedDirs?.length ?? 0) > 0) {
+    const { sealConfiguredSkillRoots } = await import("../skills/sealed-store.js");
+    await startupTrace.measure("skills.seal", () =>
+      sealConfiguredSkillRoots({ config: cfgAtStart, env: process.env }),
+    );
+  }
   const { prepareGatewayPluginBootstrap } = await loadStartupPluginsModule();
   const pluginBootstrap = await startupTrace.measure("plugins.bootstrap", () =>
     prepareGatewayPluginBootstrap({

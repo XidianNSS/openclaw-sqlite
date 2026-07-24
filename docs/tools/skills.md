@@ -41,7 +41,8 @@ skill name appears in multiple places, the highest source wins.
 | 3           | Personal agent skills  | `~/.agents/skills`                      |
 | 4           | Managed / local skills | `~/.openclaw/skills`                    |
 | 5           | Bundled skills         | shipped with the install                |
-| 6 — lowest  | Extra directories      | `skills.load.extraDirs` + plugin skills |
+| 6           | Sealed vendor skills   | `skills.load.sealedDirs`                |
+| 7 — lowest  | Extra directories      | `skills.load.extraDirs` + plugin skills |
 
 Skill roots support grouped layouts. OpenClaw discovers a skill whenever
 `SKILL.md` appears anywhere under a configured root (up to 6 levels deep):
@@ -72,6 +73,7 @@ matches your desired visibility:
 | Project-agent  | `<workspace>/.agents/skills` | Only that workspace's agent |
 | Personal-agent | `~/.agents/skills`           | All agents on this machine  |
 | Shared managed | `~/.openclaw/skills`         | All agents on this machine  |
+| Sealed vendor  | `skills.load.sealedDirs`     | Host embedded agents only   |
 | Extra dirs     | `skills.load.extraDirs`      | All agents on this machine  |
 
 ## Agent allowlists
@@ -226,6 +228,23 @@ publish and sync.
     `skills.entries.*.env` and `skills.entries.*.apiKey` inject secrets into the
     **host** process for that agent turn only — not into the sandbox. Keep
     secrets out of prompts and logs.
+  </Accordion>
+  <Accordion title="Sealed vendor skills">
+    `skills.load.sealedDirs` encrypts immutable vendor skill trees into the
+    shared SQLite state database during Linux Gateway startup, verifies the
+    committed generation, then deletes the discovered plaintext skill
+    directories. Host embedded agents retain read-only access through
+    OpenClaw's file tools at the original absolute paths. Sandboxes, shells,
+    external processes, and native CLI backends cannot access them.
+
+    The key is derived from `/etc/machine-id`, so this is casual plaintext
+    deterrence rather than protection from the host operator. Machine identity
+    changes and cross-host restores cannot decrypt the stored generation. See
+    Follow [Sealed vendor skills](/tools/sealed-skills) before enabling the
+    destructive startup flow. See
+    [Skills config](/tools/skills-config#sealed-skill-roots) for the config
+    contract.
+
   </Accordion>
 </AccordionGroup>
 

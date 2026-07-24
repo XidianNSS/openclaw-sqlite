@@ -27,6 +27,23 @@ Supported channels include: WhatsApp, Telegram, Slack, Discord, Google Chat, Sig
 
 [Website](https://openclaw.ai) · [Docs](https://docs.openclaw.ai) · [Vision](VISION.md) · [Third-party notices](THIRD_PARTY_NOTICES.md) · [DeepWiki](https://deepwiki.com/openclaw/openclaw) · [Getting Started](https://docs.openclaw.ai/start/getting-started) · [Updating](https://docs.openclaw.ai/install/updating) · [Showcase](https://docs.openclaw.ai/start/showcase) · [FAQ](https://docs.openclaw.ai/help/faq) · [Onboarding](https://docs.openclaw.ai/start/wizard) · [Nix](https://github.com/openclaw/nix-openclaw) · [Docker](https://docs.openclaw.ai/install/docker) · [Discord](https://discord.gg/clawd)
 
+## Sealed vendor skills for Linux appliances
+
+OpenClaw can seal immutable vendor skill trees into encrypted SQLite storage at
+Gateway startup, verify the committed generation, and remove the plaintext
+skill directories.
+
+- Host embedded agents retain read-only access through OpenClaw `read`, `ls`,
+  `find`, `grep`, and eligible skill commands at the original logical paths.
+- Sandboxes, shells, external processes, and native CLI backends receive no
+  plaintext filesystem projection; agent allowlists and `group:fs` policy still
+  apply.
+- Complete source reprovisioning supports generation updates and machine-ID
+  recovery, while diagnostic cache traces and trajectory exports redact marked
+  sealed `read` and `grep` bodies.
+
+[Deployment, update, and recovery guide](https://docs.openclaw.ai/tools/sealed-skills) · [Skills configuration](https://docs.openclaw.ai/tools/skills-config#sealed-skill-roots) · [Skills CLI](https://docs.openclaw.ai/cli/skills) · [Threat model and limitations](https://docs.openclaw.ai/tools/sealed-skills#understand-the-access-boundary)
+
 New install? Start here: [Getting started](https://docs.openclaw.ai/start/getting-started)
 
 Preferred setup: run `openclaw onboard` in your terminal.

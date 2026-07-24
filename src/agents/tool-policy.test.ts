@@ -26,6 +26,9 @@ describe("tool-policy", () => {
     expect(set.has("bash")).toBe(false);
     expect(set.has("apply_patch")).toBe(true);
     expect(set.has("read")).toBe(true);
+    expect(set.has("ls")).toBe(true);
+    expect(set.has("find")).toBe(true);
+    expect(set.has("grep")).toBe(true);
     expect(set.has("write")).toBe(true);
     expect(set.has("edit")).toBe(true);
   });
@@ -33,6 +36,9 @@ describe("tool-policy", () => {
   it("resolves known profiles and ignores unknown ones", () => {
     const coding = resolveToolProfilePolicy("coding");
     expect(coding?.allow).toContain("read");
+    expect(coding?.allow).toContain("ls");
+    expect(coding?.allow).toContain("find");
+    expect(coding?.allow).toContain("grep");
     expect(coding?.allow).toContain("cron");
     expect(coding?.allow).not.toContain("gateway");
     expect(resolveToolProfilePolicy("nope")).toBeUndefined();

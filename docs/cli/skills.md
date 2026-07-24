@@ -16,6 +16,7 @@ directories, verify ClawHub skills, and update ClawHub-tracked installs.
 Related:
 
 - Skills system: [Skills](/tools/skills)
+- Sealed vendor skills: [Sealed vendor skills](/tools/sealed-skills)
 - Skill Workshop: [Skill Workshop](/tools/skill-workshop)
 - Skills config: [Skills config](/tools/skills-config)
 - ClawHub installs: [ClawHub](/clawhub/cli)
@@ -74,6 +75,9 @@ and `install ./path` copies a local skill directory. By default, `install`,
 `update`, and `verify` target the active workspace `skills/` directory; with
 `--global`, they target the shared managed skills directory. `list`/`info`/`check`
 still inspect the local skills visible to the current workspace and config.
+Configured sealed vendor skills appear in these inspection commands after the
+Gateway has committed their generation; the CLI does not provide an unseal or
+plaintext export command.
 Workspace-backed commands resolve the target workspace from `--agent <id>`,
 then the current working directory when it is inside a configured agent
 workspace, then the default agent.

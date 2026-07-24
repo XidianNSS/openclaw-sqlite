@@ -30,6 +30,7 @@ export function resolveSkillTelemetrySourceValue(value: unknown): SkillTelemetry
     source === "openclaw-workspace" ||
     source === "openclaw-managed" ||
     source === "openclaw-extra" ||
+    source === "openclaw-sealed" ||
     source === "agents-skills-personal" ||
     source === "agents-skills-project"
   ) {

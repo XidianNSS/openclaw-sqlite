@@ -12,6 +12,12 @@ export interface Skill {
   disableModelInvocation: boolean;
   // Preserve legacy source reads while keeping the canonical upstream shape.
   source: string;
+  /** Present only when the logical paths are backed by encrypted SQLite resources. */
+  storage?: {
+    kind: "sealed";
+    rootKey: string;
+    generation: string;
+  };
 }
 
 export { createSyntheticSourceInfo } from "../../agents/sessions/source-info.js";

@@ -232,6 +232,14 @@
     "target": "Skills 配置"
   },
   {
+    "source": "Seal vendor skills at startup",
+    "target": "启动时封存供应商 Skills"
+  },
+  {
+    "source": "Sealed vendor skills",
+    "target": "封存的供应商 Skills"
+  },
+  {
     "source": "local loopback",
     "target": "local loopback"
   },

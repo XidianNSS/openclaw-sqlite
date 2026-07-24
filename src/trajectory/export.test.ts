@@ -53,12 +53,16 @@ function assistantMessage(content: Extract<Message, { role: "assistant" }>["cont
   };
 }
 
-function toolResultMessage(content: Extract<Message, { role: "toolResult" }>["content"]): Message {
+function toolResultMessage(
+  content: Extract<Message, { role: "toolResult" }>["content"],
+  details?: unknown,
+): Message {
   return {
     role: "toolResult",
     toolCallId: "call_1",
     toolName: "read",
     content,
+    details,
     isError: false,
     timestamp: 3,
   };
@@ -129,7 +133,10 @@ function writeToolCallOnlySessionFile(sessionFile: string): void {
   );
 }
 
-function writeToolCallSessionFile(sessionFile: string): void {
+function writeToolCallSessionFile(
+  sessionFile: string,
+  params: { sealedResultBody?: string } = {},
+): void {
   const header = {
     type: "session",
     version: 3,
@@ -168,7 +175,10 @@ function writeToolCallSessionFile(sessionFile: string): void {
       id: "entry-tool-result",
       parentId: "entry-tool-call",
       timestamp: "2026-04-01T05:46:42.000Z",
-      message: toolResultMessage([{ type: "text", text: "README contents" }]),
+      message: toolResultMessage(
+        [{ type: "text", text: params.sealedResultBody ?? "README contents" }],
+        params.sealedResultBody ? { sealedSkillContent: true } : undefined,
+      ),
     },
     {
       type: "message",
@@ -246,6 +256,28 @@ describe("exportTrajectoryBundle", () => {
     expect(fs.existsSync(path.join(outputDir, "prompts.json"))).toBe(false);
     expect(fs.existsSync(path.join(outputDir, "system-prompt.txt"))).toBe(false);
     expect(fs.existsSync(path.join(outputDir, "tools.json"))).toBe(false);
+  });
+
+  it("omits marked sealed skill read bodies from exported events and session branches", async () => {
+    const tmpDir = makeTempDir();
+    const sessionFile = path.join(tmpDir, "session.jsonl");
+    const outputDir = path.join(tmpDir, "bundle");
+    const sealedBody = "SEALED_EXPORT_CANARY_61c8c";
+    writeToolCallSessionFile(sessionFile, { sealedResultBody: sealedBody });
+
+    await exportTrajectoryBundle({
+      outputDir,
+      sessionFile,
+      sessionId: "session-1",
+      workspaceDir: tmpDir,
+    });
+
+    const events = fs.readFileSync(path.join(outputDir, "events.jsonl"), "utf8");
+    const branch = fs.readFileSync(path.join(outputDir, "session-branch.json"), "utf8");
+    expect(events).not.toContain(sealedBody);
+    expect(branch).not.toContain(sealedBody);
+    expect(events).toContain("omitted from diagnostic output");
+    expect(branch).toContain("omitted from diagnostic output");
   });
 
   it("exports usage from truncated model completion runtime events", async () => {

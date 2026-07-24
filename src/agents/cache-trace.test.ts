@@ -113,6 +113,28 @@ describe("createCacheTrace", () => {
     expect(event.system).toBe("");
   });
 
+  it("omits marked sealed skill read bodies from diagnostic messages", () => {
+    const { lines, trace } = createMemoryTraceForTest();
+    const sealedBody = "SEALED_CACHE_TRACE_CANARY_efa2";
+
+    trace?.recordStage("session:loaded", {
+      messages: [
+        {
+          role: "toolResult",
+          toolCallId: "sealed-read",
+          toolName: "read",
+          content: [{ type: "text", text: sealedBody }],
+          details: { sealedSkillContent: true },
+          isError: false,
+          timestamp: 1,
+        },
+      ],
+    });
+
+    expect(lines[0]).not.toContain(sealedBody);
+    expect(lines[0]).toContain("omitted from diagnostic output");
+  });
+
   it("records stream context from systemPrompt when wrapping stream functions", () => {
     const lines: string[] = [];
     const trace = createCacheTrace({

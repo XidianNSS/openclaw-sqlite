@@ -11,6 +11,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { assertNoSymlinkParents, writeSiblingTempFile } from "../infra/fs-safe-advanced.js";
 import { readRegularFileSync } from "../infra/fs-safe.js";
 import { redactSecrets } from "../logging/redact.js";
+import { redactSealedSkillContentFromMessages } from "../skills/sealed-runtime.js";
 import { parseBooleanValue } from "../utils/boolean.js";
 import { safeJsonStringify } from "../utils/safe-json.js";
 import {
@@ -246,10 +247,15 @@ function limitTrajectoryPayloadValue(
 }
 
 function sanitizeTrajectoryPayload(data: Record<string, unknown>): Record<string, unknown> {
-  return redactSecrets(sanitizeDiagnosticPayload(limitTrajectoryPayloadValue(data))) as Record<
-    string,
-    unknown
-  >;
+  const diagnosticData = { ...data };
+  for (const key of ["messages", "messagesSnapshot"] as const) {
+    if (Array.isArray(diagnosticData[key])) {
+      diagnosticData[key] = redactSealedSkillContentFromMessages(diagnosticData[key]);
+    }
+  }
+  return redactSecrets(
+    sanitizeDiagnosticPayload(limitTrajectoryPayloadValue(diagnosticData)),
+  ) as Record<string, unknown>;
 }
 
 function describeTrajectoryWriterFlushState(writer: TrajectoryRuntimeWriter): string | undefined {

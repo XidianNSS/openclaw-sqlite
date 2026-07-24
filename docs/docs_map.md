@@ -9593,6 +9593,22 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
   - H2: Reaction level
   - H2: Related
 
+## tools/sealed-skills.md
+
+- Route: /tools/sealed-skills
+- Headings:
+  - H2: Before you begin
+  - H2: Validate the source tree
+  - H2: Configure sealed roots
+  - H2: Seal the first generation
+  - H2: Verify the result
+  - H2: Understand the access boundary
+  - H2: Replace a generation
+  - H2: Back up and restore
+  - H2: Disable a sealed root
+  - H2: Troubleshooting
+  - H2: Related documentation
+
 ## tools/searxng-search.md
 
 - Route: /tools/searxng-search
@@ -9631,6 +9647,7 @@ Do not edit it by hand; run `pnpm docs:map:gen`.
 - Route: /tools/skills-config
 - Headings:
   - H2: Loading (skills.load)
+  - H3: Sealed skill roots
   - H2: Install (skills.install)
   - H2: Operator Install Policy (security.installPolicy)
   - H2: Bundled skill allowlist

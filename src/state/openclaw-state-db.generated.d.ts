@@ -819,6 +819,28 @@ export interface SchemaMeta {
   updated_at: number;
 }
 
+export interface SealedSkillBlobs {
+  auth_tag: Uint8Array;
+  blob_id: string;
+  ciphertext: Uint8Array;
+  generation: string;
+  nonce: Uint8Array;
+  root_key: string;
+}
+
+export interface SealedSkillRoots {
+  algorithm: string;
+  generation: string;
+  kdf_salt: Uint8Array;
+  manifest_ciphertext: Uint8Array;
+  manifest_nonce: Uint8Array;
+  manifest_tag: Uint8Array;
+  root_key: string;
+  root_path: string;
+  sealed_at: number;
+  source_removed_at: number | null;
+}
+
 export interface SkillCuratorState {
   id: Generated<number>;
   last_attempt_at_ms: number;
@@ -1110,6 +1132,8 @@ export interface DB {
   plugin_state_entries: PluginStateEntries;
   sandbox_registry_entries: SandboxRegistryEntries;
   schema_meta: SchemaMeta;
+  sealed_skill_blobs: SealedSkillBlobs;
+  sealed_skill_roots: SealedSkillRoots;
   skill_curator_state: SkillCuratorState;
   skill_lifecycle: SkillLifecycle;
   skill_uploads: SkillUploads;

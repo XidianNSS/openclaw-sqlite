@@ -18,6 +18,7 @@ Most skills configuration lives under `skills` in
     allowBundled: ["gemini", "peekaboo"],
     load: {
       extraDirs: ["~/Projects/agent-scripts/skills"],
+      sealedDirs: ["/opt/vendor/openclaw-skills"],
       allowSymlinkTargets: ["~/Projects/manager/skills"],
       watch: true,
       watchDebounceMs: 250,
@@ -60,6 +61,13 @@ Most skills configuration lives under `skills` in
   bundled and plugin skills). Paths are expanded with `~` support.
 </ParamField>
 
+<ParamField path="skills.load.sealedDirs" type="string[]">
+  Absolute Linux directories containing immutable vendor skill folders. At
+  Gateway startup, OpenClaw encrypts each discovered skill tree into the shared
+  state database, verifies the committed generation, and removes the original
+  skill directories. Changing this list requires a Gateway restart.
+</ParamField>
+
 <ParamField path="skills.load.allowSymlinkTargets" type="string[]">
   Trusted real target directories that symlinked skill folders may resolve
   into, even when the symlink lives outside the configured root. Use this for
@@ -76,6 +84,86 @@ Most skills configuration lives under `skills` in
 <ParamField path="skills.load.watchDebounceMs" type="number" default="250">
   Debounce window for skill watcher events in milliseconds.
 </ParamField>
+
+### Sealed skill roots
+
+Use sealed roots only for appliance-provisioned skills whose plaintext source
+should not remain as an ordinary filesystem tree after boot:
+
+<Note>
+  Follow [Seal vendor skills at startup](/tools/sealed-skills) for the complete
+  provisioning, update, verification, backup, recovery, and troubleshooting
+  runbook.
+</Note>
+
+```json5
+{
+  skills: {
+    load: {
+      sealedDirs: ["/opt/vendor/openclaw-skills"],
+    },
+  },
+}
+```
+
+At startup, the Gateway performs this sequence for each root:
+
+1. Discover and validate complete skill directories.
+2. Encrypt the manifest and every file with AES-256-GCM into
+   `state/openclaw.sqlite`.
+3. Commit and decrypt-verify the full generation.
+4. Remove only the discovered skill directories, leaving unrelated root files
+   and grouping directories alone.
+
+If cleanup is interrupted, the next startup finishes deleting from the
+already-committed manifest. It does not replace that generation with the
+partial tree left on disk. To install a new generation, provision the complete
+skill directories again at the same configured root and restart the Gateway.
+
+<Warning>
+  Sealing deletes the plaintext skill directories. There is no unseal or export
+  command. Removing `sealedDirs` stops loading the skills but does not recreate
+  their source or delete the encrypted database rows. Keep the vendor source in
+  your appliance build or provisioning system.
+</Warning>
+
+Requirements and limits:
+
+- Linux with a valid systemd `/etc/machine-id`; paths must be absolute and do
+  not expand `~`.
+- The configured root must not overlap the OpenClaw state directory, including
+  through symlinks. Roots also cannot overlap each other.
+- The Gateway user needs permission to read and remove every discovered skill
+  directory.
+- Roots, directories, and files must be owned by root or the Gateway user and
+  must not be group- or world-writable.
+- Inside discovered skill trees, symlinks, hard-linked files, executable files,
+  non-regular files, `.git`, and `node_modules` are rejected before any source
+  is removed.
+- Each root is limited to 200 skills, 2,000 directories, 4,000 files, 16 MiB per
+  file, and 128 MiB total. Discovery is limited to six directory levels.
+
+Sealed skills keep their original absolute logical paths. Host embedded agents
+can use OpenClaw's `read`, `ls`, `find`, and `grep` tools and skill slash
+commands against those paths. The paths are read-only. OpenClaw does not create
+a FUSE, tmpfs, or temporary plaintext projection, so shell commands, external
+processes, sandboxed agents, and native CLI backends cannot access sealed
+content. Native CLI prompts omit sealed skills rather than advertising an
+unreadable path.
+
+The key is derived from `/etc/machine-id` and a per-generation salt. A machine
+ID change, OS reinstall, root-path move, or restore onto another host makes the
+stored generation undecryptable. Restore both the original machine identity
+and OpenClaw state, or reprovision the vendor source and create a new
+generation.
+
+This is casual plaintext-at-rest deterrence, not a security boundary against
+the host operator or a compromised Gateway. A process that can read both the
+state database and machine ID can derive the key. OpenClaw decrypts content for
+the model and normal session context, and the user can ask the model to reveal
+or summarize it. Diagnostic cache traces and trajectory exports omit marked
+sealed `read` and `grep` bodies, but model responses and derived text are not
+confidential.
 
 ## Install (`skills.install`)
 

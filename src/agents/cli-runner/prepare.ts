@@ -6,6 +6,7 @@ import { ensureSystemPromptCacheBoundary } from "@openclaw/ai/internal/shared";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
 import { getRuntimeConfig } from "../../config/config.js";
 import type { CliBackendConfig } from "../../config/types.agent-defaults.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
   assertContextEngineHostSupport,
   buildGenericCliContextEngineHostSupport,
@@ -29,8 +30,14 @@ import { buildAgentHookContextChannelFields } from "../../plugins/hook-agent-con
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { isSubagentSessionKey } from "../../routing/session-key.js";
 import { annotateInterSessionPromptText } from "../../sessions/input-provenance.js";
-import { resolveSkillsPromptForRun } from "../../skills/loading/workspace.js";
+import {
+  buildResolvedSkillsPrompt,
+  resolveSkillsPromptForRun,
+} from "../../skills/loading/workspace.js";
 import { resolveEmbeddedRunSkillEntries } from "../../skills/runtime/embedded-run-entries.js";
+import { resolveReusableWorkspaceSkillSnapshot } from "../../skills/runtime/session-snapshot.js";
+import { isSealedSkill } from "../../skills/sealed-runtime.js";
+import type { SkillSnapshot } from "../../skills/types.js";
 import { resolveUserPath } from "../../utils.js";
 import { normalizeMessageChannel } from "../../utils/message-channel.js";
 import { resolveAgentWorkspaceDir } from "../agent-scope-config.js";
@@ -114,6 +121,7 @@ const prepareDeps = {
     params: Parameters<typeof import("../docs-path.js").resolveOpenClawReferencePaths>[0],
   ) => (await import("../docs-path.js")).resolveOpenClawReferencePaths(params),
   prepareClaudeCliSkillsPlugin,
+  resolveReusableWorkspaceSkillSnapshot,
   claudeCliSessionTranscriptHasContent,
   claudeCliSessionTranscriptHasOrphanedToolUse,
   resolveApiKeyForProfile,
@@ -236,6 +244,36 @@ async function resolveCliSkillsPrompt(params: {
     agentId: params.agentId,
     eligibility: skillsEligibility,
   });
+}
+
+function filterCliUnsupportedSealedSkills(params: {
+  snapshot?: SkillSnapshot;
+  config?: OpenClawConfig;
+  agentId: string;
+}): SkillSnapshot | undefined {
+  const snapshot = params.snapshot;
+  if (!snapshot) {
+    return undefined;
+  }
+  const resolvedSkills = snapshot.resolvedSkills;
+  if (!resolvedSkills) {
+    return snapshot;
+  }
+  const supportedSkills = resolvedSkills.filter((skill) => !isSealedSkill(skill));
+  if (supportedSkills.length === resolvedSkills.length) {
+    return snapshot;
+  }
+  const supportedNames = new Set(supportedSkills.map((skill) => skill.name));
+  return {
+    ...snapshot,
+    prompt: buildResolvedSkillsPrompt({
+      skills: supportedSkills,
+      config: params.config,
+      agentId: params.agentId,
+    }),
+    skills: snapshot.skills.filter((skill) => supportedNames.has(skill.name)),
+    resolvedSkills: supportedSkills,
+  };
 }
 
 const CLAUDE_CLI_CONTEXT_MODEL_ALIASES: Record<string, string> = {
@@ -661,11 +699,29 @@ export async function prepareCliRunContext(
             await preparedExecution?.beforeExecution?.();
           }
         : undefined;
+    const shouldHydrateCliSkills =
+      params.skillsSnapshot?.resolvedSkills === undefined &&
+      (params.config?.skills?.load?.sealedDirs?.length ?? 0) > 0;
+    const hydratedCliSkillsSnapshot = shouldHydrateCliSkills
+      ? prepareDeps.resolveReusableWorkspaceSkillSnapshot({
+          workspaceDir,
+          config: params.config ?? getRuntimeConfig(),
+          agentId: sessionAgentId,
+          skillFilter: params.skillsSnapshot?.skillFilter,
+          existingSnapshot: params.skillsSnapshot,
+          watch: false,
+        }).snapshot
+      : params.skillsSnapshot;
+    const cliSkillsSnapshot = filterCliUnsupportedSealedSkills({
+      snapshot: hydratedCliSkillsSnapshot,
+      config: params.config,
+      agentId: sessionAgentId,
+    });
     const claudeSkillsPlugin = isSideQuestion
       ? { args: [], cleanup: async () => {} }
       : await prepareDeps.prepareClaudeCliSkillsPlugin({
           backendId: backendResolved.id,
-          skillsSnapshot: params.skillsSnapshot,
+          skillsSnapshot: cliSkillsSnapshot,
         });
     const preparedCleanup =
       preparedBackendCleanup || claudeSkillsPlugin.args.length > 0
@@ -813,7 +869,7 @@ export async function prepareCliRunContext(
       isSideQuestion || claudeSkillsPlugin.args.length > 0
         ? ""
         : await resolveCliSkillsPrompt({
-            skillsSnapshot: params.skillsSnapshot,
+            skillsSnapshot: cliSkillsSnapshot,
             workspaceDir,
             config: params.config,
             agentId: sessionAgentId,

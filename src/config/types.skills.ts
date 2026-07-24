@@ -24,6 +24,11 @@ export type SkillsLoadConfig = {
    */
   extraDirs?: string[];
   /**
+   * Immutable vendor-owned skill roots sealed into SQLite during Gateway startup.
+   * Source skill directories are removed only after the encrypted generation is durable.
+   */
+  sealedDirs?: string[];
+  /**
    * Real target directories that skill symlinks may resolve into even when they
    * sit outside the configured source root.
    */

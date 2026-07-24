@@ -57,6 +57,33 @@ CREATE INDEX IF NOT EXISTS idx_skill_lifecycle_key
 CREATE INDEX IF NOT EXISTS idx_skill_lifecycle_state
   ON skill_lifecycle(state, skill_file);
 
+CREATE TABLE IF NOT EXISTS sealed_skill_roots (
+  root_key TEXT NOT NULL PRIMARY KEY,
+  root_path TEXT NOT NULL UNIQUE,
+  generation TEXT NOT NULL,
+  algorithm TEXT NOT NULL CHECK (algorithm = 'aes-256-gcm'),
+  kdf_salt BLOB NOT NULL,
+  manifest_nonce BLOB NOT NULL,
+  manifest_tag BLOB NOT NULL,
+  manifest_ciphertext BLOB NOT NULL,
+  sealed_at INTEGER NOT NULL,
+  source_removed_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS sealed_skill_blobs (
+  root_key TEXT NOT NULL,
+  generation TEXT NOT NULL,
+  blob_id TEXT NOT NULL,
+  nonce BLOB NOT NULL,
+  auth_tag BLOB NOT NULL,
+  ciphertext BLOB NOT NULL,
+  PRIMARY KEY (root_key, generation, blob_id),
+  FOREIGN KEY (root_key) REFERENCES sealed_skill_roots(root_key) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_sealed_skill_blobs_root
+  ON sealed_skill_blobs(root_key, generation, blob_id);
+
 CREATE TABLE IF NOT EXISTS skill_curator_state (
   id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
   last_attempt_at_ms INTEGER NOT NULL,

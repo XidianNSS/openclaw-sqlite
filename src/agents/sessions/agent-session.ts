@@ -39,6 +39,7 @@ import type {
   PersistedUserTurnMessage,
   UserTurnTranscriptRecorder,
 } from "../../sessions/user-turn-transcript.types.js";
+import { readSealedSkillFileSync } from "../../skills/sealed-runtime.js";
 import type {
   Agent,
   AgentEvent,
@@ -1345,7 +1346,9 @@ export class AgentSession {
     } // Unknown skill, pass through
 
     try {
-      const content = readFileSync(skill.filePath, "utf-8");
+      const content =
+        readSealedSkillFileSync(skill.filePath)?.toString("utf8") ??
+        readFileSync(skill.filePath, "utf-8");
       const body = stripFrontmatter(content).trim();
       const skillBlock = `<skill name="${skill.name}" location="${skill.filePath}">\nReferences are relative to ${skill.baseDir}.\n\n${body}\n</skill>`;
       return args ? `${skillBlock}\n\n${args}` : skillBlock;
