@@ -239,7 +239,7 @@ publish and sync.
 
     The key is derived from `/etc/machine-id`, so this is casual plaintext
     deterrence rather than protection from the host operator. Machine identity
-    changes and cross-host restores cannot decrypt the stored generation. See
+    changes and cross-host restores cannot decrypt the stored generation.
     Follow [Sealed vendor skills](/tools/sealed-skills) before enabling the
     destructive startup flow. See
     [Skills config](/tools/skills-config#sealed-skill-roots) for the config

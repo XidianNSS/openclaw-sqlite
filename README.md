@@ -27,22 +27,19 @@ Supported channels include: WhatsApp, Telegram, Slack, Discord, Google Chat, Sig
 
 [Website](https://openclaw.ai) · [Docs](https://docs.openclaw.ai) · [Vision](VISION.md) · [Third-party notices](THIRD_PARTY_NOTICES.md) · [DeepWiki](https://deepwiki.com/openclaw/openclaw) · [Getting Started](https://docs.openclaw.ai/start/getting-started) · [Updating](https://docs.openclaw.ai/install/updating) · [Showcase](https://docs.openclaw.ai/start/showcase) · [FAQ](https://docs.openclaw.ai/help/faq) · [Onboarding](https://docs.openclaw.ai/start/wizard) · [Nix](https://github.com/openclaw/nix-openclaw) · [Docker](https://docs.openclaw.ai/install/docker) · [Discord](https://discord.gg/clawd)
 
-## Sealed vendor skills for Linux appliances
+## Linux 设备上的封存供应商 Skills
 
-OpenClaw can seal immutable vendor skill trees into encrypted SQLite storage at
-Gateway startup, verify the committed generation, and remove the plaintext
-skill directories.
+OpenClaw 可在 Gateway 启动时，将不可变的供应商 Skill 目录树封存到加密的
+SQLite 存储中，验证已提交的数据代，然后删除明文 Skill 目录。
 
-- Host embedded agents retain read-only access through OpenClaw `read`, `ls`,
-  `find`, `grep`, and eligible skill commands at the original logical paths.
-- Sandboxes, shells, external processes, and native CLI backends receive no
-  plaintext filesystem projection; agent allowlists and `group:fs` policy still
-  apply.
-- Complete source reprovisioning supports generation updates and machine-ID
-  recovery, while diagnostic cache traces and trajectory exports redact marked
-  sealed `read` and `grep` bodies.
+- 主机内嵌智能体仍可通过 OpenClaw 的 `read`、`ls`、`find`、`grep` 和符合条件的
+  Skill 命令，以只读方式访问原始逻辑路径。
+- 沙箱、Shell、外部进程和原生 CLI 后端不会获得明文文件系统投影；智能体允许列表和
+  `group:fs` 策略仍然生效。
+- 重新配置完整源目录树可更新数据代或从机器 ID 变更中恢复；诊断缓存跟踪和轨迹导出会
+  隐去已标记的封存 `read` 和 `grep` 正文。
 
-[Deployment, update, and recovery guide](https://docs.openclaw.ai/tools/sealed-skills) · [Skills configuration](https://docs.openclaw.ai/tools/skills-config#sealed-skill-roots) · [Skills CLI](https://docs.openclaw.ai/cli/skills) · [Threat model and limitations](https://docs.openclaw.ai/tools/sealed-skills#understand-the-access-boundary)
+[部署、更新和恢复指南](docs/tools/sealed-skills.md) · [Skills 配置](docs/tools/skills-config.md#sealed-skill-roots) · [Skills CLI](docs/cli/skills.md) · [威胁模型与限制](docs/tools/sealed-skills.md#understand-the-access-boundary)
 
 New install? Start here: [Getting started](https://docs.openclaw.ai/start/getting-started)
 

@@ -232,12 +232,52 @@
     "target": "Skills 配置"
   },
   {
+    "source": "Skills CLI",
+    "target": "Skills CLI"
+  },
+  {
     "source": "Seal vendor skills at startup",
     "target": "启动时封存供应商 Skills"
   },
   {
     "source": "Sealed vendor skills",
     "target": "封存的供应商 Skills"
+  },
+  {
+    "source": "Validate the source tree",
+    "target": "验证源目录树"
+  },
+  {
+    "source": "Configure sealed roots",
+    "target": "配置封存根目录"
+  },
+  {
+    "source": "Seal the first generation",
+    "target": "封存第一代数据"
+  },
+  {
+    "source": "Verify the result",
+    "target": "验证结果"
+  },
+  {
+    "source": "Understand the access boundary",
+    "target": "了解访问边界"
+  },
+  {
+    "source": "Replace a generation",
+    "target": "替换一代数据"
+  },
+  {
+    "source": "Back up and restore",
+    "target": "备份与恢复"
+  },
+  {
+    "source": "Disable a sealed root",
+    "target": "禁用封存根目录"
+  },
+  {
+    "source": "Sealed skill roots",
+    "target": "封存的 Skill 根目录"
   },
   {
     "source": "local loopback",
